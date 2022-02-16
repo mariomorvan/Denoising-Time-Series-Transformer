@@ -9,6 +9,7 @@ import torch.optim as opt
 import pytorch_lightning as pl
 
 from .loss import MaskedMSELoss, IQRLoss
+from utils.stats import estimate_noise
 
 
 class ProbAttention(nn.Module):
@@ -568,7 +569,8 @@ class LitImputer(pl.LightningModule):
     def __init__(self, n_dim=1, d_model=128, nhead=8, dim_feedforward=256, eye=0,
                  dropout=0.1, num_layers=3, lr=0.001,
                  learned_pos=False, norm='batch', attention='full', seq_len=None,
-                 keep_ratio=None, normal_ratio=None, token_ratio=None
+                 keep_ratio=None, normal_ratio=None, token_ratio=None,
+                 noise_scaling='none'
                  ):
         """Instanciate a Lit TPT imputer module
 
@@ -600,6 +602,8 @@ class LitImputer(pl.LightningModule):
             self.keep_ratio = 0.1 if keep_ratio is None else keep_ratio
             self.normal_ratio = 0.9 if normal_ratio is None else normal_ratio
             self.token_ratio = 0. if token_ratio is None else token_ratio
+        self.noise_scaling = noise_scaling
+        assert noise_scaling in ['none', 'sqrt', 'true']
 
         self.ie = nn.Linear(n_dim, d_model)
         self.pe = PosEmbedding(d_model, learned=learned_pos)
@@ -666,9 +670,18 @@ class LitImputer(pl.LightningModule):
     def training_step(self, batch, batch_index):
         x, y, m, info = batch
         pred = self.forward(x, m)
-#         x_proxy = self.train_transform(x)
-#         y_proxy = self.train_transform(x)
-        loss = self.criterion(pred, y, m)  # x or y  + mask !!!!!
+        if self.noise_scaling is not 'none':
+            noise = estimate_noise(y)
+            if self.noise_scaling == 'sqrt':
+                noise = torch.sqrt(noise)
+            noise[torch.isnan(noise)] = 1.
+            noise[noise == 0] = 1.
+        else:
+            noise = 1.
+        loss = self.criterion(pred/noise, y/noise, m)  # x or y  + mask !!!!!
+        if torch.isnan(loss):
+            print(torch.isnan(noise).sum(), (noise == 0).sum())
+            raise ValueError
         return {'loss': loss}
 
     def training_epoch_end(self, outputs):
@@ -678,8 +691,16 @@ class LitImputer(pl.LightningModule):
     def validation_step(self, batch, batch_index):
         x, y, m, info = batch
         pred = self.forward(x, m)
-        loss = self.criterion(pred, y, m)  # x or y
-        iqr = self.iqr_loss(pred, y)
+        if self.noise_scaling is not 'none':
+            noise = estimate_noise(y)
+            if self.noise_scaling == 'sqrt':
+                noise = torch.sqrt(noise)
+            noise[torch.isnan(noise)] = 1.
+            noise[noise == 0] = 1.
+        else:
+            noise = 1.
+        loss = self.criterion(pred/noise, y/noise, m)  # x or y
+        iqr = self.iqr_loss(pred/noise, y/noise)
         return {'val_loss': loss, 'val_rmse': torch.sqrt(loss), 'val_IQR': iqr}
 
     def validation_epoch_end(self, outputs):
@@ -690,8 +711,16 @@ class LitImputer(pl.LightningModule):
     def test_step(self, batch, batch_index):
         x, y, m, info = batch
         pred = self.forward(x, m)
-        loss = self.criterion(pred, y)
-        iqr = self.iqr_loss(pred, y)
+        if self.noise_scaling is not 'none':
+            noise = estimate_noise(y)
+            if self.noise_scaling == 'sqrt':
+                noise = torch.sqrt(noise)
+            noise[torch.isnan(noise)] = 1.
+            noise[noise == 0] = 1.
+        else:
+            noise = 1.
+        loss = self.criterion(pred/noise, y/noise)
+        iqr = self.iqr_loss(pred/noise, y/noise)
         return {'test_mmse': loss, 'test_rmse': torch.sqrt(loss), 'test_IQR': iqr}
 
     def test_epoch_end(self, outputs):

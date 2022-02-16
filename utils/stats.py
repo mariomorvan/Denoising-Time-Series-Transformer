@@ -43,8 +43,25 @@ def naniqr(batch, dim=None, reduction='none'):
         return out
     elif reduction == 'mean':
         return out.mean()
+    elif reduction == 'nanmean':
+        return torch.nanmean(out)
     else:
         raise NotImplementedError
+
+
+def estimate_noise(x, dim=1, window_size=20, step=5, reduce='nanmean', keepdim=True):
+    noises = nanstd(x.unfold(dim, window_size, step), -1, keepdim=False)
+    if reduce=='nanmedian':
+        return noises.nanmedian(dim, keepdim=keepdim).values
+    if reduce=='nanmean':
+        return noises.nanmean(dim, keepdim=keepdim)
+    if reduce=='median':
+        return noises.median(dim, keepdim=keepdim).values
+    if reduce=='mean':
+        return noises.mean(dim, keepdim=keepdim)
+    if reduce=='none':
+        return noises
+    raise ValueError
 
 
 # def acf(x, fill_missing=None, keepdims=False):

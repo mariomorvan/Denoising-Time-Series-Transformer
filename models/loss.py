@@ -69,7 +69,7 @@ class MaskedL1Loss(_MaskedLoss):
 class IQRLoss(nn.Module):
     "IQR of the residuals"
 
-    def __init__(self, reduction='mean', ignore_nans=True):
+    def __init__(self, reduction='nanmean', ignore_nans=True):
         super().__init__()
         self.reduction = reduction
         self.ignore_nans = ignore_nans
