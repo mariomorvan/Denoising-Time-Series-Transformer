@@ -39,8 +39,9 @@ def plot_pred_diagnostic(x, y, y_pred, mask=None, info=None):
     ax[1, 0].legend()
 
     # ACF
-    plot_acf(res, lags=100, ax=ax[1,1], missing='drop')
-    ax[1,1].set_ylim(-0.5, 0.5)
+    if (~np.isnan(res)).sum() > 1:
+        plot_acf(res, lags=100, ax=ax[1,1], missing='drop')
+        ax[1,1].set_ylim(-0.5, 0.5)
 
     # PACF
     # plot_pacf(res, lags=100, ax=ax[0, 1], method='ywm')
