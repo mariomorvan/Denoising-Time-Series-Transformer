@@ -569,7 +569,7 @@ class LitImputer(pl.LightningModule):
     def __init__(self, n_dim=1, d_model=128, nhead=8, dim_feedforward=256, eye=0,
                  dropout=0.1, num_layers=3, lr=0.001, 
                  learned_pos=False, norm='batch', attention='full', seq_len=None,
-                 keep_ratio=None, normal_ratio=None, token_ratio=None, add_normal=False,
+                 zero_ratio=None, keep_ratio=None, random_ratio=None, token_ratio=None,
                  noise_scaling='none'
                  ):
         """Instanciate a Lit TPT imputer module
@@ -595,14 +595,15 @@ class LitImputer(pl.LightningModule):
         self.lr = lr
         self.norm = norm
         if self.n_dim == 1:
+            self.zero_ratio = 0. if zero_ratio is None else zero_ratio
             self.keep_ratio = 0. if keep_ratio is None else keep_ratio
-            self.normal_ratio = 0.1 if normal_ratio is None else normal_ratio
+            self.random_ratio = 0.1 if random_ratio is None else random_ratio
             self.token_ratio = 0.9 if token_ratio is None else token_ratio
         elif self.n_dim > 1:
-            self.keep_ratio = 0.1 if keep_ratio is None else keep_ratio
-            self.normal_ratio = 0.9 if normal_ratio is None else normal_ratio
+            self.zero_ratio = 0.1 if zero_ratio is None else zero_ratio
+            self.keep_ratio = 0. if keep_ratio is None else keep_ratio
+            self.random_ratio = 0.9 if random_ratio is None else random_ratio
             self.token_ratio = 0. if token_ratio is None else token_ratio
-        self.add_normal = add_normal
         self.noise_scaling = noise_scaling
         assert noise_scaling in ['none', 'sqrt', 'true']
 
@@ -647,10 +648,14 @@ class LitImputer(pl.LightningModule):
             return out, torch.zeros_like(x)
         r = torch.rand_like(x)
         keep_mask = (~mask | (r <= self.keep_ratio)).to(x.dtype)
-        normal_mask = (mask & (self.keep_ratio < r) & (
-            r <= self.keep_ratio+self.normal_ratio)).to(x.dtype)
+        random_mask = (mask & (self.keep_ratio < r) 
+                       & (r <= self.keep_ratio+self.random_ratio)).to(x.dtype)
+        # zero_mask = (mask & (self.keep_ratio + self.random_ratio < r)   # Shouldn't need it by construction 
+        #              & (r <= (1-self.token_ratio))).to(x.dtype)
         token_mask = (mask & ((1-self.token_ratio) < r)).to(x.dtype)
-        out = x * keep_mask + (self.add_normal * x + torch.randn_like(x)) * normal_mask
+        # xm, xM = x.min(1, keepdim=True).values, x.max(1, keepdim=True).values   # problem due to Nans
+        xm, xM = -2, 2
+        out = x * keep_mask + (torch.rand_like(x)*(xM-xm)+xm) * random_mask
         out[torch.isnan(out)] = 0.
         return out, token_mask
 
