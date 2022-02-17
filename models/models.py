@@ -567,9 +567,9 @@ class TransformerEncoderLayer(nn.TransformerEncoderLayer):
 
 class LitImputer(pl.LightningModule):
     def __init__(self, n_dim=1, d_model=128, nhead=8, dim_feedforward=256, eye=0,
-                 dropout=0.1, num_layers=3, lr=0.001,
+                 dropout=0.1, num_layers=3, lr=0.001, 
                  learned_pos=False, norm='batch', attention='full', seq_len=None,
-                 keep_ratio=None, normal_ratio=None, token_ratio=None,
+                 keep_ratio=None, normal_ratio=None, token_ratio=None, add_normal=False,
                  noise_scaling='none'
                  ):
         """Instanciate a Lit TPT imputer module
@@ -602,6 +602,7 @@ class LitImputer(pl.LightningModule):
             self.keep_ratio = 0.1 if keep_ratio is None else keep_ratio
             self.normal_ratio = 0.9 if normal_ratio is None else normal_ratio
             self.token_ratio = 0. if token_ratio is None else token_ratio
+        self.add_normal = add_normal
         self.noise_scaling = noise_scaling
         assert noise_scaling in ['none', 'sqrt', 'true']
 
@@ -649,7 +650,7 @@ class LitImputer(pl.LightningModule):
         normal_mask = (mask & (self.keep_ratio < r) & (
             r <= self.keep_ratio+self.normal_ratio)).to(x.dtype)
         token_mask = (mask & ((1-self.token_ratio) < r)).to(x.dtype)
-        out = x * keep_mask + torch.randn_like(x) * normal_mask
+        out = x * keep_mask + (self.add_normal * x + torch.randn_like(x)) * normal_mask
         out[torch.isnan(out)] = 0.
         return out, token_mask
 
@@ -670,7 +671,7 @@ class LitImputer(pl.LightningModule):
     def training_step(self, batch, batch_index):
         x, y, m, info = batch
         pred = self.forward(x, m)
-        if self.noise_scaling is not 'none':
+        if self.noise_scaling != 'none':
             noise = estimate_noise(y)
             if self.noise_scaling == 'sqrt':
                 noise = torch.sqrt(noise)
@@ -691,7 +692,7 @@ class LitImputer(pl.LightningModule):
     def validation_step(self, batch, batch_index):
         x, y, m, info = batch
         pred = self.forward(x, m)
-        if self.noise_scaling is not 'none':
+        if self.noise_scaling != 'none':
             noise = estimate_noise(y)
             if self.noise_scaling == 'sqrt':
                 noise = torch.sqrt(noise)
@@ -711,7 +712,7 @@ class LitImputer(pl.LightningModule):
     def test_step(self, batch, batch_index):
         x, y, m, info = batch
         pred = self.forward(x, m)
-        if self.noise_scaling is not 'none':
+        if self.noise_scaling != 'none':
             noise = estimate_noise(y)
             if self.noise_scaling == 'sqrt':
                 noise = torch.sqrt(noise)
