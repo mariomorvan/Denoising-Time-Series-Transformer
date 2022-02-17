@@ -16,6 +16,8 @@ TESS_LC_PATTERN = '**/tess*-*-*-*-*_*lc.fits'
 class DatasetFolder(Dataset):
     """A generic class to load files matching a pattern.
 
+    Samples and targets point to the same object, be wary.
+
     The class inherits Pytorch utils.data.Dataset class.
 
     Args:
@@ -86,7 +88,7 @@ class DatasetFolder(Dataset):
             sample, mask = self.transform_both(sample, mask=mask)
             if hasattr(self.transform_both, 'left_crop'):
                 info['left_crop'] = self.transform_both.left_crop
-        target = sample.copy()
+        target = sample
         if self.transform is not None:
             sample, mask = self.transform(sample, mask=mask)
         if self.transform_target is not None:
@@ -145,7 +147,8 @@ class DatasetFolder(Dataset):
         file_paths = glob.glob(os.path.join(
             self.root, self.FILE_PATTERN), recursive=True)
         if len(self.files) < len(file_paths):
-            warnings.warn('Fewer processed files than original fits files were found in the root directory.')
+            warnings.warn(
+                'Fewer processed files than original fits files were found in the root directory.')
 
     def save_items(self):
         """Save dataset's items as pickled files."""

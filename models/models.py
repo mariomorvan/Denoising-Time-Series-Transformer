@@ -643,7 +643,7 @@ class LitImputer(pl.LightningModule):
 
     def apply_mask(self, x, mask):
         if mask is None:
-            out = x.clone()
+            out = x
             out[torch.isnan(out)] = 0.
             return out, torch.zeros_like(x)
         r = torch.rand_like(x)

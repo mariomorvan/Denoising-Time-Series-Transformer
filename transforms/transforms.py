@@ -21,23 +21,14 @@ class Compose:
         self.transforms = transforms
 
     def __call__(self, x, mask=None):
-        if isinstance(x, np.ndarray):
-            out = x.copy()
-        elif isinstance(x, torch.Tensor):
-            out = x.clone()
-        if mask is None:
-            input_mask = None
-        elif isinstance(x, np.ndarray):
-            input_mask = mask.copy()
-        elif isinstance(x, torch.Tensor):
-            input_mask = mask.clone()
-
+        out = x
         for t in self.transforms:
-            if mask is None:
-                out = t(out, mask=mask)
+            result = t(out, mask=mask)
+            if isinstance(result, tuple):
+                out, mask = result
             else:
-                out, mask = t(out, mask=mask)
-        if input_mask is not None:
+                out = result
+        if mask is not None:
             return out, mask
         else:
             return out
@@ -84,7 +75,7 @@ class Mask(object):
 
     def __call__(self, x, mask=None):
         if isinstance(x, np.ndarray):
-            out = x.copy()
+            out = x
         else:
             raise NotImplementedError
         temp_mask = F_np.create_mask_like(out, self.mask_ratio, block_len=self.block_len,
@@ -170,9 +161,10 @@ class StandardScaler(Scaler):
         else:
             raise NotImplementedError
 
-        if (self.norms==0).any():
+        if (self.norms == 0).any():
             warnings.warn('zero norms')
-            self.norms[self.norms==0] = 1
+            self.norms[self.norms == 0] = 1
+
 
 class DownSample:
     def __init__(self, factor=1):
@@ -184,6 +176,8 @@ class DownSample:
         return x[::self.factor]
 
 # Might need to be batch wise
+
+
 class RandomCrop:
     def __init__(self, width):
         self.width = width
@@ -196,7 +190,7 @@ class RandomCrop:
             warnings.warn(
                 'cannot crop because width smaller than sequence length')
         else:
-            self.left_crop = np.max(np.random.randint(seq_len-self.width), 0)
+            self.left_crop = np.random.randint(seq_len-self.width)
         if mask is not None:
             return (x[self.left_crop:self.left_crop+self.width],
                     mask[self.left_crop:self.left_crop+self.width])
