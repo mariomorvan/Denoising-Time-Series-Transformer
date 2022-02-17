@@ -686,8 +686,11 @@ class LitImputer(pl.LightningModule):
             noise = 1.
         loss = self.criterion(pred/noise, y/noise, m)  # x or y  + mask !!!!!
         if torch.isnan(loss):
-            print(torch.isnan(noise).sum(), (noise == 0).sum())
-            raise ValueError
+            if isinstance(noise, torch.Tensor):
+                print(torch.isnan(noise).sum(), (noise == 0).sum())
+            print('Pred has nans?', torch.isnan(pred).any())
+            print('Y has nans?', torch.isnan(y).sum(), y.shape)
+            raise ValueError('Nan Loss found during training')
         return {'loss': loss}
 
     def training_epoch_end(self, outputs):
