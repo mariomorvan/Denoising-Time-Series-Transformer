@@ -87,7 +87,7 @@ class DatasetFolder(Dataset):
         if self.transform_both:
             sample, mask, info = self.transform_both(
                 sample, mask=mask, info=info)
-        target = sample
+        target = sample.copy()
         if self.transform is not None:
             sample, mask, info = self.transform(sample, mask=mask, info=info)
         if self.transform_target is not None:
