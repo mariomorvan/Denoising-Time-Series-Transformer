@@ -74,8 +74,8 @@ class IQRLoss(nn.Module):
         self.reduction = reduction
         self.ignore_nans = ignore_nans
 
-    def forward(self, input, target):
-        if not (target.size() == input.size()):
+    def forward(self, input, target=0.):
+        if isinstance(target, torch.Tensor) and not (target.size() == input.size()):
             warnings.warn(
                 "Using a target size ({}) that is different to the input size ({}). "
                 "This will likely lead to incorrect results due to broadcasting. "
