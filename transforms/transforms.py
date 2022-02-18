@@ -20,18 +20,11 @@ class Compose:
     def __init__(self, transforms):
         self.transforms = transforms
 
-    def __call__(self, x, mask=None):
+    def __call__(self, x, mask=None, info=None):
         out = x
         for t in self.transforms:
-            result = t(out, mask=mask)
-            if isinstance(result, tuple):
-                out, mask = result
-            else:
-                out = result
-        if mask is not None:
-            return out, mask
-        else:
-            return out
+            out, mask, info = t(out, mask=mask, info=info)
+        return out, mask, info
 
     def __repr__(self):
         format_string = self.__class__.__name__ + "("
@@ -46,15 +39,12 @@ class FillNans(object):
     def __init__(self, value):
         self.value = value
 
-    def __call__(self, x, mask=None):
+    def __call__(self, x, mask=None, info=None):
         if isinstance(x, np.ndarray):
             out = F_np.fill_nans(x, self.value)
         else:
             out = F_t.fill_nans(x, self.value)
-        if mask is not None:
-            return out, mask
-        else:
-            return out
+        return out, mask, info
 
 
 class Mask(object):
@@ -73,7 +63,7 @@ class Mask(object):
         self.interval_mode = interval_mode
         self.value = value
 
-    def __call__(self, x, mask=None):
+    def __call__(self, x, mask=None, info=None):
         if isinstance(x, np.ndarray):
             out = x
         else:
@@ -84,7 +74,7 @@ class Mask(object):
         if self.value is not None:
             out[temp_mask] = self.value
         out_mask = temp_mask if mask is None else mask | temp_mask
-        return out, out_mask
+        return out, out_mask, info
 
     def __repr__(self):
         return (f"Mask(ratio={self.mask_ratio}" + f" ; overlap={self.overlap_mode}" +
@@ -99,7 +89,7 @@ class AddGaussianNoise(object):
         self.mask_only = mask_only
         assert not (exclude_mask and mask_only)
 
-    def __call__(self, x, mask=None):
+    def __call__(self, x, mask=None, info=None):
         exclude_mask = None
         if mask is not None:
             if self.exclude_mask:
@@ -112,10 +102,7 @@ class AddGaussianNoise(object):
         else:
             out = F_t.add_gaussian_noise(
                 x, self.sigma, mask=exclude_mask)
-        if mask is not None:
-            return out, mask
-        else:
-            return out
+        return out, mask, info
 
 
 # TODO: behaviour relative to input mask
@@ -132,26 +119,25 @@ class Scaler(object):
         else:
             return (x - self.centers) / self.norms, mask
 
-    def fit(self, x, mask=None):
+    def fit(self, x, mask=None, info=None):
         raise NotImplementedError
 
-    def fit_transform(self, x, mask=None):
+    def fit_transform(self, x, mask=None, info=None):
         self.fit(x)
         return self.transform(x)
 
     def inverse_transform(self, y):
         return (y * self.norms) + self.centers
 
-    def __call__(self, x, mask=None):
+    def __call__(self, x, mask=None, info=None):
         out = self.fit_transform(x)
-        if mask is not None:
-            return out, mask
-        else:
-            return out
+        info['mu'] = self.centers  #.item() if self.centers.size==1 else self.centers
+        info['sigma'] = self.norms  #.item() if self.norms.size==1 else self.centers
+        return out, mask, info
 
 
 class StandardScaler(Scaler):
-    def fit(self, x):
+    def fit(self, x, mask=None, info=None):
         if isinstance(x, np.ndarray):
             self.centers = np.nanmean(x, self.dim, keepdims=True)
             self.norms = np.nanstd(x, self.dim, keepdims=True)
@@ -170,28 +156,24 @@ class DownSample:
     def __init__(self, factor=1):
         self.factor = factor
 
-    def __call__(self, x, mask=None):
-        if mask is not None:
-            return x[::self.factor], mask[::self.factor]
-        return x[::self.factor]
-
-# Might need to be batch wise
+    def __call__(self, x, mask=None, info=None):
+        return x[::self.factor], mask[::self.factor], info
 
 
 class RandomCrop:
     def __init__(self, width):
         self.width = width
-        self.left_crop = None
 
-    def __call__(self, x, mask=None):
+    def __call__(self, x, mask=None, info=None):
         seq_len = x.shape[0]
         if seq_len < self.width:
             self.left_crop = 0
             warnings.warn(
                 'cannot crop because width smaller than sequence length')
         else:
-            self.left_crop = np.random.randint(seq_len-self.width)
-        if mask is not None:
-            return (x[self.left_crop:self.left_crop+self.width],
-                    mask[self.left_crop:self.left_crop+self.width])
-        return x[self.left_crop:self.left_crop+self.width]
+            left_crop = np.random.randint(seq_len-self.width)
+        info['left_crop'] = left_crop
+        return (x[left_crop:left_crop+self.width],
+                mask[left_crop:left_crop+self.width],
+                info)
+        

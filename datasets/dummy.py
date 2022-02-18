@@ -51,11 +51,11 @@ class DummyDataset(Dataset):
     def __getitem__(self, key):
         sample, target = self.data[key]
         mask = None
-        meta = {'idx': key}
+        info = {'idx': key}
         if self.transform_both:
-            sample, mask = self.transform_both(sample, mask=mask)
+            sample, mask, info = self.transform_both(sample, mask=mask, info=info)
         if self.transform is not None:
-            sample, mask = self.transform(sample, mask=mask)
+            sample, mask, info = self.transform(sample, mask=mask, info=info)
         if self.transform_target is not None:
-            target, mask = self.transform_target(target, mask=mask)
-        return (sample, target, mask, meta)
+            target, mask, info = self.transform_target(target, mask=mask, info=info)
+        return (sample, target, mask, info)

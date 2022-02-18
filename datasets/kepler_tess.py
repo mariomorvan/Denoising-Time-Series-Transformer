@@ -85,14 +85,14 @@ class DatasetFolder(Dataset):
         else:
             mask = None
         if self.transform_both:
-            sample, mask = self.transform_both(sample, mask=mask)
-            if hasattr(self.transform_both, 'left_crop'):
-                info['left_crop'] = self.transform_both.left_crop
+            sample, mask, info = self.transform_both(
+                sample, mask=mask, info=info)
         target = sample
         if self.transform is not None:
-            sample, mask = self.transform(sample, mask=mask)
+            sample, mask, info = self.transform(sample, mask=mask, info=info)
         if self.transform_target is not None:
-            target, mask = self.transform_target(target, mask=mask)
+            target, mask, info = self.transform_target(
+                target, mask=mask, info=info)
         return (sample, target, mask, info)
 
     def load_pretransformed_item(self, idx):
