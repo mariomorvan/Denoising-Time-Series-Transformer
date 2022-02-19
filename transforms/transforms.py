@@ -54,7 +54,9 @@ class Mask(object):
                  block_mode='geom',
                  interval_mode='geom',
                  overlap_mode='random',
-                 value=np.nan):
+                 value=np.nan,
+                 exclude_mask=True
+                 ):
         # None default argument for value prevents from modiying the input's values at mask location.
         self.mask_ratio = mask_ratio
         self.block_len = block_len
@@ -62,19 +64,36 @@ class Mask(object):
         self.block_mode = block_mode
         self.interval_mode = interval_mode
         self.value = value
+        self.exclude_mask = exclude_mask
 
     def __call__(self, x, mask=None, info=None):
         if isinstance(x, np.ndarray):
             out = x
         else:
             raise NotImplementedError
-        temp_mask = F_np.create_mask_like(out, self.mask_ratio, block_len=self.block_len,
+        temp_out = out
+        if self.exclude_mask and mask is not None:
+            # only implemented for univariate at the moment.
+            assert x.shape[-1] == 1
+            temp_out = out[~mask][:, np.newaxis]
+
+        temp_mask = F_np.create_mask_like(temp_out, self.mask_ratio, block_len=self.block_len,
                                           block_mode=self.block_mode, interval_mode=self.interval_mode,
                                           overlap_mode=self.overlap_mode)
         if self.value is not None:
-            out[temp_mask] = self.value
-        out_mask = temp_mask if mask is None else mask | temp_mask
-        return out, out_mask, info
+            temp_out[temp_mask] = self.value
+
+        if mask is None:
+            mask = temp_mask
+            out = temp_out
+        elif self.exclude_mask:
+            out[~mask] = temp_out.squeeze()
+            mask[~mask] = temp_mask.squeeze()
+        else:
+            mask = mask | temp_mask
+            out = temp_out
+
+        return out, mask, info
 
     def __repr__(self):
         return (f"Mask(ratio={self.mask_ratio}" + f" ; overlap={self.overlap_mode}" +
