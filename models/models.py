@@ -8,7 +8,7 @@ import torch.nn.functional as F
 import torch.optim as opt
 import pytorch_lightning as pl
 
-from .loss import MaskedMSELoss, IQRLoss
+from .loss import MaskedMSELoss, MaskedL1Loss, MaskedHuberLoss, IQRLoss
 from utils.stats import estimate_noise
 
 
@@ -570,7 +570,7 @@ class LitImputer(pl.LightningModule):
                  dropout=0.1, num_layers=3, lr=0.001,
                  learned_pos=False, norm='batch', attention='full', seq_len=None,
                  zero_ratio=None, keep_ratio=None, random_ratio=None, token_ratio=None,
-                 train_unit='standard'
+                 train_unit='standard', train_loss='mse'
                  ):
         """Instanciate a Lit TPT imputer module
 
@@ -633,9 +633,13 @@ class LitImputer(pl.LightningModule):
         self.recons_head = nn.Linear(d_model, n_dim)
         self.msk_token_emb = nn.Parameter(torch.randn(1, 1, d_model))
 
-        self.criterion = MaskedMSELoss()  # masked or not masked
+        if train_loss == 'mse':
+            self.criterion = MaskedMSELoss()  # masked or not masked
+        elif train_loss == 'mae':
+            self.criterion = MaskedL1Loss() 
+        elif train_loss == 'huber':
+            self.criterion = MaskedHuberLoss() 
         self.iqr_loss = IQRLoss()
-#         self.train_transform = AddGaussianNoise(0.3)
 
     def configure_optimizers(self):
         optimiser = opt.Adam(self.parameters(), lr=self.lr)

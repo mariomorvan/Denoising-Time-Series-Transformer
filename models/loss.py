@@ -66,6 +66,14 @@ class MaskedL1Loss(_MaskedLoss):
         self.criterion = nn.L1Loss(reduction='none')
 
 
+class MaskedHuberLoss(_MaskedLoss):
+    """Masked L1 loss."""
+
+    def __init__(self, reduction='mean', ignore_nans=True, delta=1):
+        super().__init__(reduction=reduction, ignore_nans=ignore_nans)
+        self.criterion = nn.HuberLoss(reduction='none', delta=delta)
+
+
 class IQRLoss(nn.Module):
     "IQR of the residuals"
 
