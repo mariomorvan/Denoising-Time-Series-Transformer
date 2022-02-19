@@ -476,7 +476,7 @@ class FixedPosEmbedding(nn.Module):
         super(FixedPosEmbedding, self).__init__()
         # Compute the positional embeddings once in log space.
         pe = torch.zeros(max_len, d_model, dtype=dtype)
-        pe.require_grad = False
+        pe.requires_grad = False
 
         position = torch.arange(0, max_len, dtype=dtype).unsqueeze(1)
         div_term = (torch.arange(0, d_model, 2, dtype=dtype)
@@ -570,7 +570,7 @@ class LitImputer(pl.LightningModule):
                  dropout=0.1, num_layers=3, lr=0.001,
                  learned_pos=False, norm='batch', attention='full', seq_len=None,
                  zero_ratio=None, keep_ratio=None, random_ratio=None, token_ratio=None,
-                 eval_unit='standard'
+                 train_unit='standard'
                  ):
         """Instanciate a Lit TPT imputer module
 
@@ -604,8 +604,8 @@ class LitImputer(pl.LightningModule):
             self.keep_ratio = 0. if keep_ratio is None else keep_ratio
             self.random_ratio = 0.9 if random_ratio is None else random_ratio
             self.token_ratio = 0. if token_ratio is None else token_ratio
-        self.eval_unit = eval_unit
-        assert eval_unit in ['standard', 'noise', 'flux', 'star']
+        self.train_unit = train_unit
+        assert train_unit in ['standard', 'noise', 'flux', 'star']
 
         self.ie = nn.Linear(n_dim, d_model)
         self.pe = PosEmbedding(d_model, learned=learned_pos)
@@ -646,9 +646,9 @@ class LitImputer(pl.LightningModule):
             out = x
             out[torch.isnan(out)] = 0.
             return out, torch.zeros_like(x)
-                
+
         r = torch.rand_like(x)
-        keep_mask = (~mask | (r <= self.keep_ratio)).to(x.dtype)  ##
+        keep_mask = (~mask | (r <= self.keep_ratio)).to(x.dtype)
         # keep_mask = (~missing | (artif_mask & (r <= self.keep_ratio))).to(x.dtype)
         random_mask = (mask & (self.keep_ratio < r)
                        & (r <= self.keep_ratio+self.random_ratio)).to(x.dtype)
@@ -680,41 +680,29 @@ class LitImputer(pl.LightningModule):
         pred = self.forward(x, m)
         assert not torch.isnan(pred).any()
 
-        if self.eval_unit == 'standard':
+        if self.train_unit == 'standard':
+            loss = self.criterion(pred, y, m)
+        elif self.train_unit == 'noise':
+            noise = estimate_noise(y)
+            # noise[torch.isnan(noise)] = 1.
+            # noise[noise == 0] = 1.
             # nans = torch.isnan(y)
             # m = m & ~nans
-            loss = self.criterion(pred, y, m)
-        elif self.eval_unit == 'noise':
-            noise = estimate_noise(y)
-            noise[torch.isnan(noise)] = 1.
-            noise[noise == 0] = 1.
-            nans = torch.isnan(y)
-            m = m & ~nans
             loss = self.criterion(pred/noise, y/noise, m)
-        else:
+        elif self.train_unit == 'star':
+            # nans = torch.isnan(y)
+            # m = m & ~nans
+            # y[nans] = 0.
             y_o = inverse_standardise_batch(y, info['mu'], info['sigma'])
             pred_o = inverse_standardise_batch(pred, info['mu'], info['sigma'])
-            # Debugging nans
-            nans = torch.isnan(y_o)
-            m = m & ~nans
-            y_o[nans] = 0.
-            pred_o[nans] = 1.
-            assert not torch.isnan(pred_o).any()
-            if self.eval_unit == 'flux':
-                loss = self.criterion(pred_o, y_o, m)
-            elif self.eval_unit == 'star':
-                y_d = detrend(y_o, pred_o)
-                loss = self.criterion(torch.ones_like(y_d), y_d, m)
-        ###
-        # print("Train Loss", loss)
+            y_d = detrend(y_o, pred_o)
+            loss = self.criterion(y_d, torch.ones_like(y_d), m)
         if torch.isnan(loss):
-            # if isinstance(noise, torch.Tensor):
-            #     print(torch.isnan(noise).sum(), (noise == 0).sum())
-            # print('Pred has zeros?', torch.isclose(
-            #     pred_o, torch.zeros_like(pred_o)).sum())
             print('Pred has nans?', torch.isnan(pred).sum().item())
-            print('Y has nans?', torch.isnan(y).sum().item(), f' shape({y.shape})')
-            print('M has fully masked items?', ((m.int()-1).sum((1,2))==0).sum().item())
+            print('Y has nans?', torch.isnan(
+                y).sum().item(), f' shape({y.shape})')
+            print('M has fully masked items?',
+                  ((m.int()-1).sum((1, 2)) == 0).sum().item())
             print('mu has nans?', torch.isnan(info['mu']).sum().item())
             raise ValueError('Nan Loss found during training')
         return {'loss': loss}
@@ -724,79 +712,56 @@ class LitImputer(pl.LightningModule):
         self.log('train_loss', avg_loss)
 
     def validation_step(self, batch, batch_index):
+        variable_noise = 0.5
         x, y, m, info = batch
         pred = self.forward(x, m)
+        noise = estimate_noise(y)
+        variable = (noise <= variable_noise).squeeze()
+        n_variables = variable.sum()
 
-        if self.eval_unit == 'standard':
-            loss = self.criterion(pred, y, m)
-            iqr = self.iqr_loss(pred, y)
-        elif self.eval_unit == 'noise':
-            noise = estimate_noise(y)
-            noise[torch.isnan(noise)] = 1.
-            noise[noise == 0] = 1.
-            pred_scaled = pred / noise
-            y_scaled = y / noise
-            loss = self.criterion(pred_scaled, y_scaled, m)
-            iqr = self.iqr_loss(pred_scaled, y_scaled)
-        else:
-            y_o = inverse_standardise_batch(y, info['mu'], info['sigma'])
-            pred_o = inverse_standardise_batch(pred, info['mu'], info['sigma'])
-            # Debugging nans
-            nans = torch.isnan(y_o)
-            m = m & ~nans
-            y_o[nans] = 0.
-            pred_o[nans] = 1.
-            assert not torch.isnan(pred_o).any()
-            if self.eval_unit == 'flux':
-                loss = self.criterion(pred_o, y_o, m)
-                iqr = self.iqr_loss(pred_o, y_o)
-            elif self.eval_unit == 'star':
-                y_d = detrend(y_o, pred_o)
-                loss = self.criterion(torch.ones_like(y_d), y_d, m)
-                iqr = self.iqr_loss(y_d)
-        return {'val_loss': loss, 'val_rmse': torch.sqrt(loss), 'val_IQR': iqr}
+        # standard unit space
+        mse = self.criterion(pred, y, m)
+        iqr = self.iqr_loss(pred, y)
+        iqr_variable = np.nan
+        if variable.sum():
+            iqr_variable = self.iqr_loss((pred-y)[variable])
+
+        # white noise unit space
+        pred_noise = pred / noise
+        y_noise = y / noise
+        mse_noise = self.criterion(pred_noise, y_noise, m)
+        iqr_noise = self.iqr_loss(pred_noise, y_noise)
+        iqr_variable_noise = np.nan
+        if n_variables:
+            iqr_variable_noise = self.iqr_loss((pred_noise-y_noise)[variable])
+
+        # star normalised unit space
+        y_o = inverse_standardise_batch(y, info['mu'], info['sigma'])
+        pred_o = inverse_standardise_batch(pred, info['mu'], info['sigma'])
+        y_d = detrend(y_o, pred_o)
+        iqr_star = self.iqr_loss(y_d)
+        mse_star = self.criterion( torch.ones_like(y_d), y_d, m)
+        iqr_variable_star = np.nan
+        if n_variables:
+            iqr_variable_star = self.iqr_loss(y_d[variable])
+
+        return {'val_rmse': torch.sqrt(mse), 'val_IQR': iqr, 'val_IQR_var':iqr_variable,
+                'val_rmse_noise': torch.sqrt(mse_noise), 'val_IQR_noise': iqr_noise, 'val_IQR_var_noise': iqr_variable_noise,
+                'val_rmse_star': torch.sqrt(mse_star), 'val_IQR_star': iqr_star, 'val_IQR_var_star': iqr_variable_star,
+                #"n_variables": n_variables,
+                }
 
     def validation_epoch_end(self, outputs):
-        for name in ['val_loss', 'val_rmse', 'val_IQR']:
+        for name in outputs[0].keys():
             score = torch.stack([x[name] for x in outputs]).mean()
             self.log(name, score, prog_bar=True)
 
     def test_step(self, batch, batch_index):
-        x, y, m, info = batch
-        pred = self.forward(x, m)
-        if self.eval_unit == 'standard':
-            loss = self.criterion(pred, y, m)
-            iqr = self.iqr_loss(pred, y)
-        elif self.eval_unit == 'noise':
-            noise = estimate_noise(y)
-            noise[torch.isnan(noise)] = 1.
-            noise[noise == 0] = 1.
-            pred_scaled = pred / noise
-            y_scaled = y / noise
-            loss = self.criterion(pred_scaled, y_scaled, m)
-            iqr = self.iqr_loss(pred_scaled, y_scaled)
-        else:
-            y_o = inverse_standardise_batch(y, info['mu'], info['sigma'])
-            pred_o = inverse_standardise_batch(pred, info['mu'], info['sigma'])
-            # Debugging nans
-            nans = torch.isnan(y_o)
-            m = m & ~nans
-            y_o[nans] = 0.
-            pred_o[nans] = 1.
-            assert not torch.isnan(pred_o).any()
-            if self.eval_unit == 'flux':
-                loss = self.criterion(pred_o, y_o, m)
-                iqr = self.iqr_loss(pred_o, y_o)
-            elif self.eval_unit == 'star':
-                y_d = detrend(y_o, pred_o)
-                loss = self.criterion(torch.ones_like(y_d), y_d, m)
-                iqr = self.iqr_loss(y_d)
-        return {'test_mmse': loss, 'test_rmse': torch.sqrt(loss), 'test_IQR': iqr}
+        d_out = self.validation_step(batch, batch_index)
+        return {k.replace('val', 'test') : v for k,v in d_out.items()}
 
     def test_epoch_end(self, outputs):
-        for name in ['test_mmse', 'test_rmse', 'test_IQR']:
-            score = torch.stack([x[name] for x in outputs]).mean()
-            self.log(name, score)
+        return self.validation_epoch_end(outputs)
 
 
 def inverse_standardise_batch(x, mu, sigma):

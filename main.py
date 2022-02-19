@@ -2,10 +2,10 @@ import os
 import numpy as np
 import pandas as pd
 
-
 import torch
 from torch.utils.data import DataLoader, random_split
 import pytorch_lightning as pl
+import cv2
 
 from models import LitImputer
 from datasets import TessDataset
@@ -13,27 +13,38 @@ from transforms import Compose, StandardScaler, Mask, RandomCrop, DownSample
 
 
 max_samples = 1000
-val_ratio = 0.2
-batch_size = 128
+val_ratio = 0.1
+batch_size = 64
 seed = 0
 num_workers = 0
 pin_memory = True
 
+if num_workers > 0:
+    import cv2
+    cv2.setNumThreads(0)
 
 if __name__ == '__main__':
     GPUS = int(torch.cuda.is_available())
     torch.cuda.empty_cache()
 
     # DATA LOADING AND PREP
-    transform_both = Compose([RandomCrop(800),
-                              DownSample(2),
-                              StandardScaler(dim=0),
-                              # FillNans(0),
-                              ])
 
-    transform = Compose([
-                        Mask(0.3, block_len=None, value=None),
-                        ])
+    transform_both_train = Compose([RandomCrop(800, exclude_missing_threshold=0.8),
+                                    DownSample(2),
+                                    Mask(0.3, block_len=None,
+                                         value=None, exclude_mask=True),
+                                    StandardScaler(dim=0),
+                                    # FillNans(0),
+                                    ])
+
+    transform_both_test = Compose([RandomCrop(800, exclude_missing_threshold=0.8),
+                                   DownSample(2),
+                                   #                                Mask(0.3, block_len=None, value=None, exclude_mask=True),
+                                   StandardScaler(dim=0),
+                                   # FillNans(0),
+                                   ])
+
+    transform = None
 
     if GPUS:
         path = "/state/partition1/mmorvan/data/TESS/lightcurves/0001"
@@ -49,16 +60,15 @@ if __name__ == '__main__':
                           load_processed=True,
                           max_samples=max_samples,
                           transform=transform,
-                          transform_both=transform_both,
+                          transform_both=transform_both_train,
                           use_cache=True,
                           )
     test_dataset = TessDataset(test_path,
                                load_processed=True,
-                               transform_both=transform_both,
+                               transform_both=transform_both_test,
                                use_cache=True,
                                )
 
-    #dataset.n_dim = 1
     # TRAIN/VAL SPLIT
     val_size = int(val_ratio * len(dataset))
     train_size = len(dataset) - val_size
@@ -78,21 +88,19 @@ if __name__ == '__main__':
 
     # MODEL DEF AND TRAIN
     torch.manual_seed(seed)
-    lit_model = LitImputer(n_dim=1, d_model=64, dim_feedforward=128,
+    lit_model = LitImputer(n_dim=1, d_model=64, dim_feedforward=128, lr=0.001,
+                           # attention='linear', seq_len=400,
                            random_ratio=1, zero_ratio=0., keep_ratio=0., token_ratio=0,
-                           noise_scaling="true",
-                           )
+                           train_unit='standard')
     from pytorch_lightning.loggers import NeptuneLogger
     logger = NeptuneLogger(project="denoising-transformer",
                            name='tess_denoising',
                            log_model_checkpoints=True,
-                           tags=(([str(len(dataset))+' samples',
-                                   "noise-scaled",
-                                   #'mask-0.3 blcok - 0.1 random',
-                                   f"batch-{batch_size}"
-                                   ])))
+                           tags=[str(len(dataset))+' samples',
+                                 "train - " + lit_model.train_unit,
+                                 ])
 
-    trainer = pl.Trainer(max_epochs=1000,
+    trainer = pl.Trainer(max_epochs=3000,
                          logger=logger,
                          gpus=GPUS,
                          profiler='simple')
