@@ -49,7 +49,7 @@ def naniqr(batch, dim=None, reduction='none'):
         raise NotImplementedError
 
 
-def estimate_noise(x, dim=1, window_size=20, step=5, reduce='nanmean', keepdim=True):
+def estimate_noise(x, dim=1, window_size=10, step=5, reduce='nanmean', keepdim=True):
     noises = nanstd(x.unfold(dim, window_size, step), -1, keepdim=False)
     if reduce=='nanmedian':
         return noises.nanmedian(dim, keepdim=keepdim).values
