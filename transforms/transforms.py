@@ -107,11 +107,12 @@ class AddGaussianNoise(object):
 
 # TODO: behaviour relative to input mask
 class Scaler(object):
-    def __init__(self, centers=None, norms=None, dim=1):
+    def __init__(self, dim, centers=None, norms=None,  eps=1e-10):
         super().__init__()
         self.dim = dim
         self.centers = centers
         self.norms = norms
+        self.eps = eps
 
     def transform(self, x, mask=None):
         if mask is None:
@@ -140,16 +141,12 @@ class StandardScaler(Scaler):
     def fit(self, x, mask=None, info=None):
         if isinstance(x, np.ndarray):
             self.centers = np.nanmean(x, self.dim, keepdims=True)
-            self.norms = np.nanstd(x, self.dim, keepdims=True)
+            self.norms = np.nanstd(x, self.dim, keepdims=True) + self.eps
         elif isinstance(x, torch.Tensor):
             self.centers = torch.nanmean(x, self.dim, keepdim=True)
-            self.norms = nanstd(x, self.dim, keepdim=True)
+            self.norms = nanstd(x, self.dim, keepdim=True) + self.eps
         else:
             raise NotImplementedError
-
-        if (self.norms == 0).any():
-            warnings.warn('zero norms')
-            self.norms[self.norms == 0] = 1
 
 
 class DownSample:
