@@ -131,8 +131,8 @@ class Scaler(object):
 
     def __call__(self, x, mask=None, info=None):
         out = self.fit_transform(x)
-        info['mu'] = self.centers  #.item() if self.centers.size==1 else self.centers
-        info['sigma'] = self.norms  #.item() if self.norms.size==1 else self.centers
+        info['mu'] = self.centers
+        info['sigma'] = self.norms
         return out, mask, info
 
 
@@ -161,8 +161,9 @@ class DownSample:
 
 
 class RandomCrop:
-    def __init__(self, width):
+    def __init__(self, width, not_empty=True):
         self.width = width
+        self.not_empty = not_empty
 
     def __call__(self, x, mask=None, info=None):
         seq_len = x.shape[0]
@@ -173,7 +174,11 @@ class RandomCrop:
         else:
             left_crop = np.random.randint(seq_len-self.width)
         info['left_crop'] = left_crop
-        return (x[left_crop:left_crop+self.width],
-                mask[left_crop:left_crop+self.width],
-                info)
-        
+
+        out_x = x[left_crop:left_crop+self.width]
+
+        if self.not_empty and np.isnan(out_x).all():
+            return self.__call__(x, mask=mask, info=info)
+        out_m = mask[left_crop:left_crop+self.width]
+
+        return (out_x, out_m, info)
