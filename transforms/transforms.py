@@ -184,9 +184,10 @@ class DownSample:
 
 
 class RandomCrop:
-    def __init__(self, width, exclude_empty=True):
+    def __init__(self, width, exclude_missing_threshold=None):
         self.width = width
-        self.exclude_empty = exclude_empty
+        self.exclude_missing_threshold = exclude_missing_threshold
+        assert exclude_missing_threshold is None or 0 <= exclude_missing_threshold <= 1
 
     def __call__(self, x, mask=None, info=None):
         seq_len = x.shape[0]
@@ -200,8 +201,9 @@ class RandomCrop:
 
         out_x = x[left_crop:left_crop+self.width]
 
-        if self.exclude_empty and np.isnan(out_x).all():
+        if self.exclude_missing_threshold is not None and np.isnan(out_x).mean() >= self.exclude_missing_threshold:
             return self.__call__(x, mask=mask, info=info)
         out_m = mask[left_crop:left_crop+self.width]
 
         return (out_x, out_m, info)
+
