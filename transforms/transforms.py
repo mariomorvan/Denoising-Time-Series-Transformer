@@ -165,9 +165,9 @@ class DownSample:
 
 
 class RandomCrop:
-    def __init__(self, width, not_empty=True):
+    def __init__(self, width, exclude_empty=True):
         self.width = width
-        self.not_empty = not_empty
+        self.exclude_empty = exclude_empty
 
     def __call__(self, x, mask=None, info=None):
         seq_len = x.shape[0]
@@ -181,7 +181,7 @@ class RandomCrop:
 
         out_x = x[left_crop:left_crop+self.width]
 
-        if self.not_empty and np.isnan(out_x).all():
+        if self.exclude_empty and np.isnan(out_x).all():
             return self.__call__(x, mask=mask, info=info)
         out_m = mask[left_crop:left_crop+self.width]
 
