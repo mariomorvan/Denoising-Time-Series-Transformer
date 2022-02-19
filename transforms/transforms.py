@@ -120,31 +120,38 @@ class Scaler(object):
         else:
             return (x - self.centers) / self.norms, mask
 
-    def fit(self, x, mask=None, info=None):
+    def fit(self, x, mask=None):
         raise NotImplementedError
 
-    def fit_transform(self, x, mask=None, info=None):
-        self.fit(x)
+    def fit_transform(self, x, mask=None):
+        self.fit(x, mask=mask)
         return self.transform(x)
 
     def inverse_transform(self, y):
         return (y * self.norms) + self.centers
 
     def __call__(self, x, mask=None, info=None):
-        out = self.fit_transform(x)
+        out = self.fit_transform(x, mask=mask)
         info['mu'] = self.centers
         info['sigma'] = self.norms
         return out, mask, info
 
 
 class StandardScaler(Scaler):
-    def fit(self, x, mask=None, info=None):
+    def fit(self, x, mask=None):
+        xm = x
         if isinstance(x, np.ndarray):
-            self.centers = np.nanmean(x, self.dim, keepdims=True)
-            self.norms = np.nanstd(x, self.dim, keepdims=True) + self.eps
+            if mask is not None:
+                xm = x.copy()
+                xm[mask] = np.nan
+            self.centers = np.nanmean(xm, self.dim, keepdims=True)
+            self.norms = np.nanstd(xm, self.dim, keepdims=True) + self.eps
         elif isinstance(x, torch.Tensor):
-            self.centers = torch.nanmean(x, self.dim, keepdim=True)
-            self.norms = nanstd(x, self.dim, keepdim=True) + self.eps
+            if mask is not None:
+                xm = x.clone()
+                xm[mask] = np.nan
+            self.centers = torch.nanmean(xm, self.dim, keepdim=True)
+            self.norms = nanstd(xm, self.dim, keepdim=True) + self.eps
         else:
             raise NotImplementedError
 
