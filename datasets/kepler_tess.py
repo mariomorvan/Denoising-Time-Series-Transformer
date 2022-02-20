@@ -1,13 +1,19 @@
 import os
 import glob
 import warnings
+from typing import (
+    Optional,
+    Sequence,
+)
 
 import numpy as np
-import torch
-from torch.utils.data import Dataset, DataLoader
 from pathlib import Path
 from astropy.io import fits
 from tqdm import tqdm
+from torch._utils import _accumulate
+from torch import default_generator, randperm
+from torch.utils.data import Dataset, DataLoader
+
 
 KEPLER_LC_PATTERN = '**/kplr*-*lc.fits'
 TESS_LC_PATTERN = '**/tess*-*-*-*-*_*lc.fits'
@@ -73,11 +79,7 @@ class DatasetFolder(Dataset):
         return len(self.files)
 
     def __getitem__(self, idx):
-        if not self.use_cache:
-            sample = self.load_pretransformed_item(idx)
-            self.cached_data.append(sample)
-        else:
-            sample = self.cached_data[idx]
+        sample = self.get_pretransformed_sample(idx)
         info = self.get_info(idx)
 
         if self.mask_missing:
@@ -95,17 +97,25 @@ class DatasetFolder(Dataset):
                 target, mask=mask, info=info)
         return (sample, target, mask, info)
 
-    def load_pretransformed_item(self, idx):
+    def get_pretransformed_sample(self, idx):
+        if not self.use_cache:
+            sample = self.load_lc_file(idx)
+            self.cached_data.append(sample)
+        else:
+            sample = self.cached_data[idx]
+        return sample
+
+    def load_lc_file(self, idx):
         # no transform
         processed_file = self.files[idx].replace('.fits', '.pt')
         if self.load_processed and os.path.exists(processed_file):
             out = np.load(processed_file)
         else:
-            out = self.load_fits_item(idx)
+            out = self.load_fits_file(idx)
 
         return out
 
-    def load_fits_item(self, idx):
+    def load_fits_file(self, idx):
         """Fits loader function.
         Note: could be extracted and provided as argument."""
         fits_file = fits.open(self.files[idx])
@@ -161,7 +171,7 @@ class DatasetFolder(Dataset):
             processed_file = os.path.join(self.save_folder,
                                           os.path.basename(self.files[idx]).replace('.fits', '.npy'))
             if not os.path.exists(processed_file) or self.overwrite:
-                item = self.load_pretransformed_item(idx)
+                item = self.load_lc_file(idx)
                 with open(processed_file, 'wb') as f:
                     np.save(f, item)
 
@@ -171,7 +181,7 @@ class DatasetFolder(Dataset):
         processed_file = os.path.join(save_folder,
                                       os.path.basename(self.files[idx]).replace('.fits', '.npy'))
         if not os.path.exists(processed_file) or self.overwrite:
-            item = self.load_pretransformed_item(idx)
+            item = self.load_lc_file(idx)
             with open(processed_file, 'wb') as f:
                 np.save(f, item)
 
@@ -197,3 +207,53 @@ class TessDataset(DatasetFolder):
         fn = Path(self.files[idx]).name
         targetid = int(fn[24:40])
         return {'idx': idx, 'targetid': targetid}
+
+
+class Subset(Dataset):
+    def __init__(self, dataset, indices, replace_transform=None, replace_transform_target=None, replace_transform_both=None):
+        self.dataset = dataset
+        self.indices = indices
+        self.transform = replace_transform if replace_transform is not None else self.dataset.transform
+        self.transform_target = replace_transform_target if replace_transform_target is not None else self.dataset.transform_target
+        self.transform_both = replace_transform_both if replace_transform_both is not None else self.dataset.transform_both
+
+    def __getitem__(self, idx):
+        idx = self.indices[idx]
+        sample = self.dataset.get_pretransformed_sample(idx)
+        info = self.dataset.get_info(idx)
+
+        if self.dataset.mask_missing:
+            mask = np.isnan(sample)
+        else:
+            mask = None
+        if self.transform_both:
+            sample, mask, info = self.transform_both(
+                sample, mask=mask, info=info)
+        target = sample.copy()
+        if self.transform is not None:
+            sample, mask, info = self.transform(sample, mask=mask, info=info)
+        if self.transform_target is not None:
+            target, mask, info = self.transform_target(
+                target, mask=mask, info=info)
+        return (sample, target, mask, info)
+
+    def __len__(self):
+        return len(self.indices)
+
+
+
+
+def split_indices(lengths: Sequence[int],
+                  generator = default_generator):
+    r"""
+    Randomly split indices into non-overlapping indice subsets.
+    Optionally fix the generator for reproducible results, e.g.:
+
+    >>> split_indices([3, 7], generator=torch.Generator().manual_seed(42))
+
+    Args:
+        lengths (sequence): lengths of splits to be produced
+        generator (Generator): Generator used for the random permutation.
+    """
+    indices = randperm(sum(lengths), generator=generator).tolist()
+    return [indices[offset - length : offset] for offset, length in zip(_accumulate(lengths), lengths)]
