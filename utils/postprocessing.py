@@ -98,7 +98,10 @@ def plot_pred_diagnostic(x, y, y_pred, mask=None, mu=None, sigma=None, targetid=
         #ax[2,0].legend()
     # ACF
     if (~np.isnan(res)).sum() > 1:
-        plot_acf(res, lags=len(y)//2, ax=ax[2, 1], missing='drop')
+        first_present  = (np.isnan(y)).argmin()
+        last_present = len(y) - np.argmin(np.isnan(y[::-1]))
+        res_mod = res[first_present:last_present]
+        plot_acf(res_mod, lags=len(res_mod)//2, ax=ax[2, 1], missing='drop')
         ax[2, 1].set_ylim(-0.5, 0.5)
 
     # PACF
