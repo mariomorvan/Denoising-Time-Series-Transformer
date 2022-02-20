@@ -63,7 +63,7 @@ def plot_pred_diagnostic(x, y, y_pred, mask=None, mu=None, sigma=None, targetid=
     ax[0, 0].legend(bbox_to_anchor=(1.3, 1))
 
     # RESIDUALS
-    ax[1,1].set_title('Residual Errors')
+    ax[1, 0].set_title('Residual Errors')
     ax[1, 0].set_ylabel('stand. flux units')
     ax[1, 0].plot([0, len(res)], [0, 0],
                   linestyle='dashed', c='black', alpha=0.5)
