@@ -569,7 +569,7 @@ class LitImputer(pl.LightningModule):
     def __init__(self, n_dim=1, d_model=128, nhead=8, dim_feedforward=256, eye=0,
                  dropout=0.1, num_layers=3, lr=0.001,
                  learned_pos=False, norm='batch', attention='full', seq_len=None,
-                 zero_ratio=None, keep_ratio=None, random_ratio=None, token_ratio=None,
+                 keep_ratio=0., random_ratio=1., token_ratio=0.,
                  train_unit='standard', train_loss='mse'
                  ):
         """Instanciate a Lit TPT imputer module
@@ -594,16 +594,10 @@ class LitImputer(pl.LightningModule):
         self.num_layers = num_layers
         self.lr = lr
         self.norm = norm
-        if self.n_dim == 1:
-            self.zero_ratio = 0. if zero_ratio is None else zero_ratio
-            self.keep_ratio = 0. if keep_ratio is None else keep_ratio
-            self.random_ratio = 0.1 if random_ratio is None else random_ratio
-            self.token_ratio = 0.9 if token_ratio is None else token_ratio
-        elif self.n_dim > 1:
-            self.zero_ratio = 0.1 if zero_ratio is None else zero_ratio
-            self.keep_ratio = 0. if keep_ratio is None else keep_ratio
-            self.random_ratio = 0.9 if random_ratio is None else random_ratio
-            self.token_ratio = 0. if token_ratio is None else token_ratio
+        # self.zero_ratio =  zero_ratio
+        self.keep_ratio = keep_ratio
+        self.random_ratio = random_ratio
+        self.token_ratio = token_ratio
         self.train_unit = train_unit
         assert train_unit in ['standard', 'noise', 'flux', 'star']
 
@@ -639,6 +633,8 @@ class LitImputer(pl.LightningModule):
             self.criterion = MaskedL1Loss() 
         elif train_loss == 'huber':
             self.criterion = MaskedHuberLoss() 
+        else:
+            raise NotImplementedError
         self.iqr_loss = IQRLoss()
 
     def configure_optimizers(self):
