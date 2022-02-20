@@ -631,11 +631,13 @@ class LitImputer(pl.LightningModule):
         if train_loss == 'mse':
             self.criterion = MaskedMSELoss()  # masked or not masked
         elif train_loss == 'mae':
-            self.criterion = MaskedL1Loss() 
+            self.criterion = MaskedL1Loss()
         elif train_loss == 'huber':
-            self.criterion = MaskedHuberLoss() 
+            self.criterion = MaskedHuberLoss()
         else:
             raise NotImplementedError
+        self.mae_loss = MaskedL1Loss()
+        self.mse_loss = MaskedMSELoss()
         self.iqr_loss = IQRLoss()
 
     def configure_optimizers(self):
@@ -712,54 +714,88 @@ class LitImputer(pl.LightningModule):
         avg_loss = torch.stack([x['loss'] for x in outputs]).mean()
         self.log('train_loss', avg_loss)
 
-    def validation_step(self, batch, batch_index):
+    def validation_step(self, batch, batch_index, dataloader_idx=None):
         variable_noise = 0.5
         x, y, m, info = batch
         pred = self.forward(x, m)
+
         noise = estimate_noise(y)
         variable = (noise <= variable_noise).squeeze()
         n_variables = variable.sum()
-
-        # standard unit space
-        mse = self.criterion(pred, y, m)
-        iqr = self.iqr_loss(pred, y)
-        iqr_variable = np.nan
-        if variable.sum():
-            iqr_variable = self.iqr_loss((pred-y)[variable])
-
-        # white noise unit space
         pred_noise = pred / noise
         y_noise = y / noise
-        mse_noise = self.criterion(pred_noise, y_noise, m)
-        iqr_noise = self.iqr_loss(pred_noise, y_noise)
-        iqr_variable_noise = np.nan
-        if n_variables:
-            iqr_variable_noise = self.iqr_loss((pred_noise-y_noise)[variable])
 
         # star normalised unit space
         y_o = inverse_standardise_batch(y, info['mu'], info['sigma'])
         pred_o = inverse_standardise_batch(pred, info['mu'], info['sigma'])
         y_d = detrend(y_o, pred_o)
-        iqr_star = self.iqr_loss(y_d)
-        mse_star = self.criterion( torch.ones_like(y_d), y_d, m)
-        iqr_variable_star = np.nan
-        if n_variables:
-            iqr_variable_star = self.iqr_loss(y_d[variable])
 
-        return {'val_rmse': torch.sqrt(mse), 'val_IQR': iqr, 'val_IQR_var':iqr_variable,
-                'val_rmse_noise': torch.sqrt(mse_noise), 'val_IQR_noise': iqr_noise, 'val_IQR_var_noise': iqr_variable_noise,
-                'val_rmse_star': torch.sqrt(mse_star), 'val_IQR_star': iqr_star, 'val_IQR_var_star': iqr_variable_star,
-                #"n_variables": n_variables,
-                }
+        out = dict()
+        if dataloader_idx is None or dataloader_idx == 0:  # Imputing
+            # Imputation
+            rmse = torch.sqrt(self.mse_loss(pred, y, m))
+            rmse_noise = torch.sqrt(self.mse_loss(pred_noise, y_noise, m))
+            rmse_star = torch.sqrt(self.mse_loss(torch.ones_like(y_d), y_d, m))
+            mae = self.mae_loss(pred, y, m)
+            mae_noise = self.mae_loss(pred_noise, y_noise, m)
+            mae_star = self.mae_loss(torch.ones_like(y_d), y_d, m)
+
+            out.update({'val_mrmse': rmse, 'val_mmae': mae,
+                        'val_mrmse_noise': rmse_noise, 'val_mmae_noise': mae_noise,
+                        'val_mrmse_star': rmse_star, 'val_mmae_star': mae_star
+                        })
+
+        if dataloader_idx is None or dataloader_idx == 1:
+            # Bias
+            rmse = torch.sqrt(self.mse_loss(pred, y))
+            rmse_noise = torch.sqrt(self.mse_loss(pred_noise, y_noise))
+            rmse_star = torch.sqrt(self.mse_loss(torch.ones_like(y_d), y_d))
+            mae = self.mae_loss(pred, y)
+            mae_noise = self.mae_loss(pred_noise, y_noise)
+            mae_star = self.mae_loss(torch.ones_like(y_d), y_d)
+
+            out.update({'val_rmse': rmse, 'val_mae': mae,
+                        'val_rmse_noise': rmse_noise, 'val_mae_noise': mae_noise,
+                        'val_rmse_star': rmse_star, 'val_mae_star': mae_star
+                        })
+
+            # Denoising
+            iqr = self.iqr_loss(pred, y)
+            iqr_variable = torch.tensor(np.nan)
+            if n_variables:
+                iqr_variable = self.iqr_loss((pred-y)[variable])
+            iqr_noise = self.iqr_loss(pred_noise, y_noise)
+            iqr_variable_noise = torch.tensor(np.nan)
+            if n_variables:
+                iqr_variable_noise = self.iqr_loss(
+                    (pred_noise-y_noise)[variable])
+            iqr_star = self.iqr_loss(y_d)
+            iqr_variable_star = torch.tensor(np.nan)
+            if n_variables:
+                iqr_variable_star = self.iqr_loss(y_d[variable])
+
+            out.update({'val_IQR': iqr, 'val_IQR_var': iqr_variable,
+                        'val_IQR_noise': iqr_noise, 'val_IQR_var_noise': iqr_variable_noise,
+                        'val_IQR_star': iqr_star, 'val_IQR_var_star': iqr_variable_star,
+                        })
+        return out
 
     def validation_epoch_end(self, outputs):
-        for name in outputs[0].keys():
-            score = torch.stack([x[name] for x in outputs]).mean()
-            self.log(name, score, prog_bar=True)
+        if len(outputs) > 1:
+            for dataloader_idx in range(len(outputs)):
+                for name in outputs[dataloader_idx][0].keys():
+                    score = torch.stack([x[name]
+                                        for x in outputs[dataloader_idx]]).mean()
+                    self.log(name, score, prog_bar=True)
+        else:
+            for name in outputs[0].keys():
+                score = torch.stack([x[name]
+                                    for x in outputs]).mean()
+                self.log(name, score, prog_bar=True) 
 
-    def test_step(self, batch, batch_index):
-        d_out = self.validation_step(batch, batch_index)
-        return {k.replace('val', 'test') : v for k,v in d_out.items()}
+    def test_step(self, batch, batch_index, dataloader_idx=0):
+        d_out = self.validation_step(batch, batch_index, dataloader_idx)
+        return {k.replace('val', 'test'): v for k, v in d_out.items()}
 
     def test_epoch_end(self, outputs):
         return self.validation_epoch_end(outputs)
