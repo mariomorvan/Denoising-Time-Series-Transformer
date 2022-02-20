@@ -569,7 +569,7 @@ class LitImputer(pl.LightningModule):
     def __init__(self, n_dim=1, d_model=128, nhead=8, dim_feedforward=256, eye=0,
                  dropout=0.1, num_layers=3, lr=0.001,
                  learned_pos=False, norm='batch', attention='full', seq_len=None,
-                 keep_ratio=0., random_ratio=1., token_ratio=0.,
+                 keep_ratio=0., random_ratio=1., token_ratio=0., uniform_bound=2.,
                  train_unit='standard', train_loss='mse'
                  ):
         """Instanciate a Lit TPT imputer module
@@ -597,6 +597,7 @@ class LitImputer(pl.LightningModule):
         # self.zero_ratio =  zero_ratio
         self.keep_ratio = keep_ratio
         self.random_ratio = random_ratio
+        self.uniform_bound = uniform_bound
         self.token_ratio = token_ratio
         self.train_unit = train_unit
         assert train_unit in ['standard', 'noise', 'flux', 'star']
@@ -656,7 +657,7 @@ class LitImputer(pl.LightningModule):
         #              & (r <= (1-self.token_ratio))).to(x.dtype)
         token_mask = (mask & ((1-self.token_ratio) < r)).to(x.dtype)
         # xm, xM = x.min(1, keepdim=True).values, x.max(1, keepdim=True).values   # problem due to Nans
-        xm, xM = -2, 2
+        xm, xM = -self.uniform_bound, self.uniform_bound
         out = x * keep_mask + (torch.rand_like(x)*(xM-xm)+xm) * random_mask
         out[torch.isnan(out)] = 0.
         return out, token_mask
