@@ -565,6 +565,17 @@ class TransformerEncoderLayer(nn.TransformerEncoderLayer):
             raise NotImplementedError
 
 
+class TransformerEncoder(nn.TransformerEncoder):
+    def get_attention_maps(self, x, mask=None):
+        attention_maps = []
+        for layer in self.layers:
+            _, attn_map = layer.self_attn(x, x, x, attn_mask=mask)
+            attention_maps.append(attn_map)
+            x = layer(x)
+        return attention_maps
+
+
+
 class LitImputer(pl.LightningModule):
     def __init__(self, n_dim=1, d_model=128, nhead=8, dim_feedforward=256, eye=0,
                  dropout=0.1, num_layers=3, lr=0.001,
@@ -624,7 +635,7 @@ class LitImputer(pl.LightningModule):
                                                     norm=norm, seq_len=seq_len,
                                                     attention=attention
                                                     )
-            self.encoder = nn.TransformerEncoder(encoder_layer, num_layers)
+            self.encoder = TransformerEncoder(encoder_layer, num_layers)
         self.recons_head = nn.Linear(d_model, n_dim)
         self.msk_token_emb = nn.Parameter(torch.randn(1, 1, d_model))
 
@@ -676,6 +687,21 @@ class LitImputer(pl.LightningModule):
         attention_mask = self.ea(x)
         out = self.encoder(out, mask=attention_mask)
         out = self.recons_head(out)
+        return out
+    
+    def get_attention_maps(self, x, mask=None):
+        out, token_mask = self.apply_mask(x, mask)
+        out = self.ie(out)
+        #print(self.msk_token_emb.shape, token_mask.shape, out.shape)
+        if self.token_ratio:
+            out = self.msk_token_emb * token_mask + (1-token_mask) * out
+
+        out = out + self.pe(out)
+
+        attention_mask = self.ea(x)
+        # out = self.encoder(out, mask=attention_mask)
+        out = self.encoder.get_attention_maps(out, mask=attention_mask)
+        # out = self.recons_head(out)
         return out
 
     def training_step(self, batch, batch_index):
