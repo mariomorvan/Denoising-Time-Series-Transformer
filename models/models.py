@@ -819,7 +819,7 @@ class LitImputer(pl.LightningModule):
                                     for x in outputs]).mean()
                 self.log(name, score, prog_bar=True) 
 
-    def test_step(self, batch, batch_index, dataloader_idx=0):
+    def test_step(self, batch, batch_index, dataloader_idx=None):
         d_out = self.validation_step(batch, batch_index, dataloader_idx)
         return {k.replace('val', 'test'): v for k, v in d_out.items()}
 
