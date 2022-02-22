@@ -210,9 +210,9 @@ class TessDataset(DatasetFolder):
 
 
 class Subset(Dataset):
-    def __init__(self, dataset, indices, replace_transform=None, replace_transform_target=None, replace_transform_both=None):
+    def __init__(self, dataset, indices=None, replace_transform=None, replace_transform_target=None, replace_transform_both=None):
         self.dataset = dataset
-        self.indices = indices
+        self.indices = indices if indices is not None else list(range(len(dataset)))
         self.transform = replace_transform if replace_transform is not None else self.dataset.transform
         self.transform_target = replace_transform_target if replace_transform_target is not None else self.dataset.transform_target
         self.transform_both = replace_transform_both if replace_transform_both is not None else self.dataset.transform_both
