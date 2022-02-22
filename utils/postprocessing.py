@@ -1,9 +1,12 @@
 import warnings
-
+from datetime import datetime
+from tqdm import tqdm 
 import numpy as np
 import torch
 import matplotlib.pylab as plt
 from statsmodels.graphics.tsaplots import plot_acf
+
+from utils.stats import naniqr, compute_dw
 
 plt.rcParams.update({'font.size': 13})
 
@@ -158,3 +161,42 @@ def plot_pred_diagnostic(x, y, y_pred, mask=None, ar=None, mu=None, sigma=None, 
         (f'(targetid = {targetid})' if targetid is not None else '')
     fig.suptitle(title, fontsize=15)
     return ax
+
+
+def predict_full_inputs(lit_model, loader, test_dataset, skip, device=None):
+    target_test = np.vstack([test_dataset.get_pretransformed_sample(idx).squeeze() 
+                             for idx in range(len(test_dataset))])
+    se_len = target_test.shape[1]
+    exec_time = []
+    out = []
+    lit_model.eval().to(device)
+    
+    for X, Y, M, I in tqdm(loader):
+        # access original TS non transformed 
+        idx = I['idx'][0]
+        Y_intact = test_dataset.get_pretransformed_sample(idx).squeeze()
+        seq_len = len(Y_intact)
+        time = np.arange(seq_len) / 48  # Get the actual time vector maybe
+        
+        with torch.no_grad():
+            t0 = datetime.now()
+            Y_pred = lit_model(X.to(device)).cpu()
+            Y_pred_o = inverse_standardise_batch(Y_pred, I['mu'], I['sigma'])
+            Y_pred_of = fold_back(Y_pred_o, skip=skip, seq_len=seq_len)
+            out += [Y_pred_of]
+            exec_time += [datetime.now()-t0]
+
+            t0 = datetime.now()
+    print('Mean batch exec time', np.mean(exec_time))
+    final_preds = np.vstack(out)
+    return final_preds
+
+def eval_full_inputs(lit_model, loader, test_dataset, skip, device=None):
+    target_test = np.vstack([test_dataset.get_pretransformed_sample(idx).squeeze() 
+                             for idx in range(len(test_dataset))])
+    final_preds = predict_full_inputs(lit_model, loader, test_dataset, skip, device=device)
+    pred_d = target_test / final_preds
+    iqr = naniqr(pred_d, dim=1, reduction='mean')
+    dw = np.abs(compute_dw(pred_d-1, dim=1, reduction='none')-2).mean()
+    return iqr, dw
+    
