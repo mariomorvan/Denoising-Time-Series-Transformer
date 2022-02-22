@@ -1,4 +1,5 @@
 import os
+from argparse import ArgumentParser
 import numpy as np
 import pandas as pd
 
@@ -14,69 +15,118 @@ from datasets.loading import CollatePred
 from utils.postprocessing import eval_full_inputs
 
 
-max_samples = 1000
-val_ratio = 0.1
-batch_size = 64
-seed = 0
-num_workers = 0
-pin_memory = True
+def add_arguments(parser):
+    """Add program options to provided parser to run the DTST"""
+
+    # loading/training/eval stages
+    parser.add_argument('--train_path')
+    parser.add_argument('--test_path')
+    parser.add_argument("--checkpoint")  # not activated yet
+    parser.add_argument("--eval", action="store_true", help="Whether to eval "
+                        + "on the full test dataset or not")
+
+    # project, checkpoints
+    parser.add_argument("--name", type=str, default=None,
+                        help="Experiment name to be appended to folder's name"
+                        + " and Neptune log")
+    parser.add_argument("--neptune_project", "--neptune", type=str, default=None,
+                        help='name of a neptune project to log the experiment'
+                             + 'to. This requires having previously set up a '
+                             + 'neptune API token (https://docs.neptune.ai/'
+                             + 'getting-started/installation). ')
+    parser.add_argument("--tags", nargs="+", type=str,
+                        help='additional neptune tags')
+
+    # data options
+    parser.add_argument('--max_samples', type=int, default=None)
+
+    parser.add_argument('--val_ratio', type=float, default=0.1,
+                        help="fraction of samples used for validation.")
+    parser.add_argument('--seed', type=int, default=0)
+
+    # Transforms
+    parser.add_argument('--crop', default=500, type=int)
+    parser.add_argument('--downsample', default=0, type=int)
+
+    # general training options
+    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--num_workers", type=int, default=0)
+    parser.add_argument('--epochs', type=int, default=10000)
+
+    # Mask completely at random
+    parser.add_argument("--mask_random", type=float, default=0.3,
+                        help='Fraction of the input to randomly mask.')
+    # Mask in geometric blocks
+    parser.add_argument("--mask_geom", type=float, default=None,
+                        help='Fraction of the input to mask with geometrically'
+                        + ' distributed missing blocks.')
+    parser.add_argument("--block_len", type=int, default=5,
+                        help='Average masking block lengths.')
+    return parser
+
+
+skip = 25
+
 
 if __name__ == '__main__':
+    parser = ArgumentParser()
+    parser = add_arguments(parser)
+    parser = LitImputer.add_model_specific_args(parser)
+
+    args = parser.parse_args()
+    batch_size = args.batch_size
+    num_workers = args.num_workers
     GPUS = int(torch.cuda.is_available())
+    pin_memory = bool(GPUS)
     torch.cuda.empty_cache()
     if num_workers > 0:
         import cv2
         cv2.setNumThreads(0)
-    pl.seed_everything(0)
+    pl.seed_everything(args.seed)
 
-    # DATA LOADING AND PREP
-    if GPUS:
-        path = "/state/partition1/mmorvan/data/TESS/lightcurves/0001"
-    else:
-        path = "/Users/mario/data/TESS/lightcurves/0027"
+    transform_list = []
+    transform_list_2 = []
+    if args.crop:
+        transform_list += [RandomCrop(args.crop,
+                                      exclude_missing_threshold=0.8)]
+        transform_list_2 += [RandomCrop(args.crop,
+                                        exclude_missing_threshold=0.8)]
+    if args.downsample > 1:
+        transform_list += [DownSample(args.downsample)]
+        transform_list_2 += [DownSample(args.downsample)]
+    if args.mask_geom:
+        transform_list += [Mask(args.mask_geom, block_len=args.block_len,
+                                value=None, exclude_mask=True)]
+    if args.mask_random:
+        transform_list += [Mask(args.mask_random, block_len=None,
+                                value=None, exclude_mask=True)]
+    transform_list += [StandardScaler(dim=0)]
+    transform_list_2 += [StandardScaler(dim=0)]
 
-    train_path = os.path.join(path, 'processed_train')
-    test_path = os.path.join(path, 'processed_test')
+    transform_both_train = Compose(transform_list)
 
-    transform_both_train = Compose([RandomCrop(800, exclude_missing_threshold=0.8),
-                                    DownSample(2),
-                                    Mask(0.3, block_len=None,
-                                         value=None, exclude_mask=True),
-                                    StandardScaler(dim=0),
-                                    # FillNans(0),
-                                    ])
-
-    transform_both_2 = Compose([RandomCrop(800, exclude_missing_threshold=0.8),
-                                DownSample(2),
-                                #                                Mask(0.3, block_len=None, value=None, exclude_mask=True),
-                                StandardScaler(dim=0),
-                                ])
+    transform_both_2 = Compose(transform_list_2)
 
     transform = None
 
-    if GPUS:
-        path = "/state/partition1/mmorvan/data/TESS/lightcurves/0001"
-    else:
-        path = "/Users/mario/data/TESS/lightcurves/0027"
-
-    dataset = TessDataset(train_path,
+    dataset = TessDataset(args.train_path,
                           load_processed=True,
-                          max_samples=max_samples,
+                          max_samples=args.max_samples,
                           transform=transform,
                           transform_both=transform_both_train,
                           use_cache=True,
                           )
-    test_dataset = TessDataset(test_path,
+    test_dataset = TessDataset(args.test_path,
                                load_processed=True,
                                use_cache=True,
                                )
 
     #dataset.n_dim = 1
     # TRAIN/VAL SPLIT
-    val_size = int(val_ratio * len(dataset))
+    val_size = int(args.val_ratio * len(dataset))
     train_size = len(dataset) - val_size
     train_indices, val_indices = split_indices((train_size, val_size),
-                                               generator=torch.Generator().manual_seed(seed))
+                                               generator=torch.Generator().manual_seed(args.seed))
     train_dataset = Subset(dataset, train_indices)
 
     val_dataset1 = Subset(dataset, val_indices)
@@ -102,27 +152,30 @@ if __name__ == '__main__':
     loader_pred = DataLoader(test_dataset,
                              batch_size=1,
                              shuffle=False,
-                             collate_fn=CollatePred(400, step=350),
+                             collate_fn=CollatePred(
+                                 args.crop, step=args.crop - skip * 2),
                              num_workers=num_workers, pin_memory=pin_memory)
 
     print('train size:', len(train_dataset), '\ntest size:',
           len(test_dataset1), '\nval size:', len(val_dataset1))
 
-    # MODEL DEF AND TRAIN
-    torch.manual_seed(seed)
-    lit_model = LitImputer(n_dim=1, d_model=64, dim_feedforward=128, num_layers=3, lr=0.001,
-                           random_ratio=0.1, token_ratio=0.9,
-                           train_unit='noise', train_loss='mae')
-    from pytorch_lightning.loggers import NeptuneLogger
-    logger = NeptuneLogger(project="denoising-transformer",
-                           name='tess_denoising',
-                           log_model_checkpoints=False,
-                           tags=[str(len(dataset))+' samples',
-                                 "train - " + lit_model.train_unit,
-                                 "0.2 geom 0.1 bernouille"
-                                 ])
+    # MODEL DEF AND TRAIN`
+    dict_args = vars(args).copy()
+    for k in vars(args).keys():
+        if dict_args[k] is None:
+            dict_args.pop(k)
+    lit_model = LitImputer(**dict_args)
+    if args.neptune_project:
+        from pytorch_lightning.loggers import NeptuneLogger
+        logger = NeptuneLogger(project=args.neptune_project,
+                               name='tess_denoising' if args.name is None else args.name,
+                               log_model_checkpoints=False,
+                               tags=[str(len(dataset))+' samples'] 
+                               + (args.tags if args.tags is not None else []))
+    else:
+        logger = None
 
-    trainer = pl.Trainer(max_epochs=5,
+    trainer = pl.Trainer(max_epochs=args.epochs,
                          logger=logger,
                          gpus=GPUS,
                          profiler='simple',
@@ -136,10 +189,13 @@ if __name__ == '__main__':
     except FileNotFoundError as e:
         print(e)
 
-    trainer.test(lit_model, dataloaders=[test_loader1, test_loader2])
+    if args.eval:
+        torch.cuda.empty_cache()
 
-    iqr, dw = eval_full_inputs(
-        lit_model, loader_pred, test_dataset, 25, 'cuda')
-    logger.experiment['testing/full_test_iqr'] = iqr
-    logger.experiment['testing/full_test_dw2'] = dw
-    print(iqr, dw)
+        trainer.test(lit_model, dataloaders=[test_loader1, test_loader2])
+
+        iqr, dw = eval_full_inputs(
+            lit_model, loader_pred, test_dataset, skip, 'cuda')
+        logger.experiment['testing/full_test_iqr'] = iqr
+        logger.experiment['testing/full_test_dw2'] = dw
+        print(iqr, dw)

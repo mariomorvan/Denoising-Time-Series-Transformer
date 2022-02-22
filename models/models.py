@@ -575,13 +575,27 @@ class TransformerEncoder(nn.TransformerEncoder):
         return attention_maps
 
 
-
 class LitImputer(pl.LightningModule):
-    def __init__(self, n_dim=1, d_model=128, nhead=8, dim_feedforward=256, eye=0,
-                 dropout=0.1, num_layers=3, lr=0.001,
-                 learned_pos=False, norm='batch', attention='full', seq_len=None,
-                 keep_ratio=0., random_ratio=1., token_ratio=0., uniform_bound=2.,
-                 train_unit='standard', train_loss='mse'
+    def __init__(self,
+                 n_dim=1,
+                 d_model=64,
+                 nhead=8,
+                 dim_feedforward=128,
+                 eye=0,
+                 dropout=0.1,
+                 num_layers=3,
+                 lr=0.001,
+                 learned_pos=False,
+                 norm='batch',
+                 attention='full',
+                 seq_len=None,
+                 keep_ratio=0.,
+                 random_ratio=1.,
+                 token_ratio=0.,
+                 uniform_bound=2.,
+                 train_unit='standard',
+                 train_loss='mae',
+                 **kwargs
                  ):
         """Instanciate a Lit TPT imputer module
 
@@ -651,6 +665,29 @@ class LitImputer(pl.LightningModule):
         self.mse_loss = MaskedMSELoss()
         self.iqr_loss = IQRLoss()
 
+    @staticmethod
+    def add_model_specific_args(parent_parser):
+        parser = parent_parser.add_argument_group("LitImputer")
+        parser.add_argument("--n_dim", type=int)
+        parser.add_argument("--d_model", type=int)
+        parser.add_argument("--nhead", type=int)
+        parser.add_argument("--dim_feedforward", type=int)
+        parser.add_argument("--eye", type=int)
+        parser.add_argument("--dropout", type=float)
+        parser.add_argument("--num_layers", type=int)
+        parser.add_argument("--lr", type=float)
+        parser.add_argument("--learned_pos", action='store_true')
+        parser.add_argument("--norm", type=str)
+        parser.add_argument("--attention", type=str)
+        parser.add_argument("--seq_len", type=int)
+        parser.add_argument("--keep_ratio", type=float)
+        parser.add_argument("--random_ratio", type=float)
+        parser.add_argument("--token_ratio", type=float)
+        parser.add_argument("--uniform_bound", type=float)
+        parser.add_argument("--train_unit", type=str, choices=['standard', 'noise', 'star'])
+        parser.add_argument("--train_loss", type=str, choices=['mae', 'mse', 'huber'])
+        return parent_parser
+
     def configure_optimizers(self):
         optimiser = opt.Adam(self.parameters(), lr=self.lr)
         return optimiser
@@ -688,7 +725,7 @@ class LitImputer(pl.LightningModule):
         out = self.encoder(out, mask=attention_mask)
         out = self.recons_head(out)
         return out
-    
+
     def get_attention_maps(self, x, mask=None):
         out, token_mask = self.apply_mask(x, mask)
         out = self.ie(out)
@@ -787,16 +824,16 @@ class LitImputer(pl.LightningModule):
 
             # Denoising
             iqr = self.iqr_loss(pred, y)
-            iqr_variable = torch.tensor(np.nan)
+            iqr_variable = torch.tensor(np.nan, device=pred.device)
             if n_variables:
                 iqr_variable = self.iqr_loss((pred-y)[variable])
             iqr_noise = self.iqr_loss(pred_noise, y_noise)
-            iqr_variable_noise = torch.tensor(np.nan)
+            iqr_variable_noise = torch.tensor(np.nan, device=pred.device)
             if n_variables:
                 iqr_variable_noise = self.iqr_loss(
                     (pred_noise-y_noise)[variable])
             iqr_star = self.iqr_loss(y_d)
-            iqr_variable_star = torch.tensor(np.nan)
+            iqr_variable_star = torch.tensor(np.nan, device=pred.device)
             if n_variables:
                 iqr_variable_star = self.iqr_loss(y_d[variable])
 
@@ -817,7 +854,7 @@ class LitImputer(pl.LightningModule):
             for name in outputs[0].keys():
                 score = torch.stack([x[name]
                                     for x in outputs]).mean()
-                self.log(name, score, prog_bar=True) 
+                self.log(name, score, prog_bar=True)
 
     def test_step(self, batch, batch_index, dataloader_idx=None):
         d_out = self.validation_step(batch, batch_index, dataloader_idx)
