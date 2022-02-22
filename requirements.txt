@@ -1,0 +1,13 @@
+numpy 
+pandas
+statsmodels
+astropy
+jupyter
+wotan
+ipykernel
+matplotlib
+torch 
+torchvision 
+pytorch_lightning
+neptune_client
+opencv-python
