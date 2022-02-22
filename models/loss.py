@@ -29,13 +29,15 @@ class _MaskedLoss(nn.Module):
         if mask is None:
             mask = torch.ones_like(input, dtype=bool)
 
+        target_proxy = target
         if self.ignore_nans:
+            target_proxy = target.clone()
             nans = torch.isnan(target)
             if nans.any():
                 with torch.no_grad():
                     mask = mask & ~nans
-                    target[nans] = 0
-        full_loss = self.criterion(input, target)
+                    target_proxy[nans] = 0
+        full_loss = self.criterion(input, target_proxy)
 
         if not mask.any():
             warnings.warn(
