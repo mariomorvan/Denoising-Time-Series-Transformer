@@ -1,3 +1,5 @@
+import warnings
+
 import numpy as np
 import torch
 import matplotlib.pylab as plt
@@ -8,6 +10,21 @@ plt.rcParams.update({'font.size': 13})
 
 def inverse_standardise_batch(x, mu, sigma):
     return x * sigma + mu
+
+
+def fold_back(x, skip=0, seq_len=None):
+    # Assumes no skip at the start
+    if skip == 0:
+        out = x.flatten()
+    else:
+        out = [x[0,:skip].flatten(), x[:,skip:-skip].flatten()]
+        if isinstance(x, torch.Tensor):
+            out = torch.cat(out)
+        elif isinstance(x, np.ndarray):
+            out = np.concatenate(out)
+    if seq_len is not None:
+        out = out[:seq_len]
+    return out
 
 
 def detrend(x, trend):
@@ -129,9 +146,12 @@ def plot_pred_diagnostic(x, y, y_pred, mask=None, ar=None, mu=None, sigma=None, 
         first_present = (np.isnan(y)).argmin()
         last_present = len(y) - np.argmin(np.isnan(y[::-1]))
         res_mod = res[first_present:last_present]
-        plot_acf(res_mod, lags=len(res_mod)//2,
-                 ax=ax[2+plot_ar, 1], missing='drop')
-        ax[2+plot_ar, 1].set_ylim(-0.5, 0.5)
+        try:
+            plot_acf(res_mod, lags=len(res_mod)//2,
+                     ax=ax[2+plot_ar, 1], missing='drop')
+            ax[2+plot_ar, 1].set_ylim(-0.5, 0.5)
+        except ValueError:
+            warnings.warn('Issue in ACF plot, passing')
 
     # title
     title = 'Prediction Diagnostic ' + \
