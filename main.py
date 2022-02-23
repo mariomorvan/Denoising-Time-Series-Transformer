@@ -96,10 +96,10 @@ if __name__ == '__main__':
         transform_list_2 += [DownSample(args.downsample)]
     if args.mask_geom:
         transform_list += [Mask(args.mask_geom, block_len=args.block_len,
-                                value=None, exclude_mask=True)]
+                                value=None, exclude_mask=True, max_ratio=0.90)]
     if args.mask_random:
         transform_list += [Mask(args.mask_random, block_len=None,
-                                value=None, exclude_mask=True)]
+                                value=None, exclude_mask=True, max_ratio=0.95)]
     transform_list += [StandardScaler(dim=0)]
     transform_list_2 += [StandardScaler(dim=0)]
 

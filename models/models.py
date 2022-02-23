@@ -684,8 +684,10 @@ class LitImputer(pl.LightningModule):
         parser.add_argument("--random_ratio", type=float)
         parser.add_argument("--token_ratio", type=float)
         parser.add_argument("--uniform_bound", type=float)
-        parser.add_argument("--train_unit", type=str, choices=['standard', 'noise', 'star'])
-        parser.add_argument("--train_loss", type=str, choices=['mae', 'mse', 'huber'])
+        parser.add_argument("--train_unit", type=str,
+                            choices=['standard', 'noise', 'star'])
+        parser.add_argument("--train_loss", type=str,
+                            choices=['mae', 'mse', 'huber'])
         return parent_parser
 
     def configure_optimizers(self):
@@ -744,7 +746,6 @@ class LitImputer(pl.LightningModule):
     def training_step(self, batch, batch_index):
         x, y, m, info = batch
         pred = self.forward(x, m)
-        assert not torch.isnan(pred).any()
 
         if self.train_unit == 'standard':
             loss = self.criterion(pred, y, m)

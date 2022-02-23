@@ -55,7 +55,8 @@ class Mask(object):
                  interval_mode='geom',
                  overlap_mode='random',
                  value=np.nan,
-                 exclude_mask=True
+                 exclude_mask=True,
+                 max_ratio=None
                  ):
         # None default argument for value prevents from modiying the input's values at mask location.
         self.mask_ratio = mask_ratio
@@ -65,6 +66,7 @@ class Mask(object):
         self.interval_mode = interval_mode
         self.value = value
         self.exclude_mask = exclude_mask
+        self.max_ratio = max_ratio
 
     def __call__(self, x, mask=None, info=None):
         if isinstance(x, np.ndarray):
@@ -80,6 +82,10 @@ class Mask(object):
         temp_mask = F_np.create_mask_like(temp_out, self.mask_ratio, block_len=self.block_len,
                                           block_mode=self.block_mode, interval_mode=self.interval_mode,
                                           overlap_mode=self.overlap_mode)
+
+        if self.max_ratio is not None and temp_mask.mean() >= self.max_ratio:
+            return self.__call__(x, mask=mask, info=info)
+
         if self.value is not None:
             temp_out[temp_mask] = self.value
 
@@ -206,4 +212,3 @@ class RandomCrop:
         out_m = mask[left_crop:left_crop+self.width]
 
         return (out_x, out_m, info)
-
