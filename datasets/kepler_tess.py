@@ -5,6 +5,7 @@ from typing import (
     Optional,
     Sequence,
 )
+import random
 
 import numpy as np
 from pathlib import Path
@@ -47,7 +48,7 @@ class DatasetFolder(Dataset):
     """
     FILE_PATTERN = None
 
-    def __init__(self, root, transform=None, transform_target=None, transform_both=None, mask_missing=True, max_samples=None,
+    def __init__(self, root, transform=None, transform_target=None, transform_both=None, mask_missing=True, max_samples=None, shuffle=False, random_seed=0,
                  load_processed=True, check_processed=True, save_processed=None, overwrite=False, save_folder=None, use_cache=False):
         super().__init__()
         self.root = root
@@ -56,6 +57,8 @@ class DatasetFolder(Dataset):
         self.transform_both = transform_both
         self.mask_missing = mask_missing
         self.max_samples = max_samples
+        self.random_seed = random_seed
+        self.shuffle = shuffle
         self.load_processed = load_processed
         self.check_processed = check_processed
         self.save_processed = save_processed if save_processed is not None else not load_processed
@@ -147,6 +150,10 @@ class DatasetFolder(Dataset):
             self.root, self.file_pattern), recursive=True)
         self.files = sorted(file_paths)
 
+        if self.shuffle:
+            random.seed(self.random_seed)
+            random.shuffle(self.files)
+
         if self.load_processed and self.check_processed:
             self._check_processed_completeness()
 
@@ -212,7 +219,8 @@ class TessDataset(DatasetFolder):
 class Subset(Dataset):
     def __init__(self, dataset, indices=None, replace_transform=None, replace_transform_target=None, replace_transform_both=None):
         self.dataset = dataset
-        self.indices = indices if indices is not None else list(range(len(dataset)))
+        self.indices = indices if indices is not None else list(
+            range(len(dataset)))
         self.transform = replace_transform if replace_transform is not None else self.dataset.transform
         self.transform_target = replace_transform_target if replace_transform_target is not None else self.dataset.transform_target
         self.transform_both = replace_transform_both if replace_transform_both is not None else self.dataset.transform_both
@@ -241,10 +249,8 @@ class Subset(Dataset):
         return len(self.indices)
 
 
-
-
 def split_indices(lengths: Sequence[int],
-                  generator = default_generator):
+                  generator=default_generator):
     r"""
     Randomly split indices into non-overlapping indice subsets.
     Optionally fix the generator for reproducible results, e.g.:
@@ -256,4 +262,4 @@ def split_indices(lengths: Sequence[int],
         generator (Generator): Generator used for the random permutation.
     """
     indices = randperm(sum(lengths), generator=generator).tolist()
-    return [indices[offset - length : offset] for offset, length in zip(_accumulate(lengths), lengths)]
+    return [indices[offset - length: offset] for offset, length in zip(_accumulate(lengths), lengths)]
