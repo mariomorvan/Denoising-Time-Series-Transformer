@@ -70,7 +70,7 @@ def plot_pred_diagnostic(x, y, y_pred, mask=None, ar=None, mu=None, sigma=None, 
         fig, ax = plt.subplots(4,1, figsize=(8, 7), gridspec_kw={'height_ratios': [2, 1, 2, 1.5]},
             sharex='col')
     else:
-        fig, ax = plt.subplots(3, 1, figsize=(15, 8), gridspec_kw={
+        fig, ax = plt.subplots(3, 1, figsize=(8, 7), gridspec_kw={
             'height_ratios': [2, 2, 1]}, sharex='col')
 
     # INPUT
@@ -151,9 +151,10 @@ def plot_pred_diagnostic(x, y, y_pred, mask=None, ar=None, mu=None, sigma=None, 
 
 
 def predict_full_inputs(lit_model, loader, test_dataset, skip, device=None):
+    lit_model.eval()
     target_test = np.vstack([test_dataset.get_pretransformed_sample(idx).squeeze() 
                              for idx in range(len(test_dataset))])
-    se_len = target_test.shape[1]
+    seq_len = target_test.shape[1]
     exec_time = []
     out = []
     lit_model.eval().to(device)
@@ -163,11 +164,10 @@ def predict_full_inputs(lit_model, loader, test_dataset, skip, device=None):
         idx = I['idx'][0]
         Y_intact = test_dataset.get_pretransformed_sample(idx).squeeze()
         seq_len = len(Y_intact)
-        time = np.arange(seq_len) / 48  # Get the actual time vector maybe
         
         with torch.no_grad():
             t0 = datetime.now()
-            Y_pred = lit_model(X.to(device)).cpu()
+            Y_pred = lit_model(X.to(device), mask=M.to(device)).cpu()
             Y_pred_o = inverse_standardise_batch(Y_pred, I['mu'], I['sigma'])
             Y_pred_of = fold_back(Y_pred_o, skip=skip, seq_len=seq_len)
             out += [Y_pred_of]
