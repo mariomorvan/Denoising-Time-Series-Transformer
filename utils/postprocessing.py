@@ -183,7 +183,7 @@ def eval_full_inputs(lit_model, loader, test_dataset, skip, device=None):
                              for idx in range(len(test_dataset))])
     final_preds = predict_full_inputs(lit_model, loader, test_dataset, skip, device=device)
     pred_d = target_test / final_preds
-    iqr = naniqr(pred_d, dim=1, reduction='mean')
-    dw = np.abs(compute_dw(pred_d-1, dim=1, reduction='none')-2).mean()
+    iqr = naniqr(pred_d, dim=1, reduction='none')
+    dw = compute_dw(pred_d-1, dim=1, reduction='none')
     return iqr, dw
     
