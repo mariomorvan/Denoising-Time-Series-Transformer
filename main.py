@@ -7,6 +7,9 @@ import torch
 from torch.utils.data import DataLoader, random_split
 import pytorch_lightning as pl
 import cv2
+from pytorch_lightning.callbacks.early_stopping import EarlyStopping
+from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
+
 
 from models import LitImputer
 from datasets.kepler_tess import TessDataset, Subset, split_indices
@@ -52,6 +55,9 @@ def add_arguments(parser):
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--num_workers", type=int, default=0)
     parser.add_argument('--epochs', type=int, default=10000)
+    parser.add_argument('--monitor', help='metrics used '
+                        + 'for checkpointing and early stopping')
+    parser.add_argument('--patience', type=float)
 
     # Mask completely at random
     parser.add_argument("--mask_random", type=float, default=0.3,
@@ -170,15 +176,28 @@ if __name__ == '__main__':
         logger = NeptuneLogger(project=args.neptune_project,
                                name='tess_denoising' if args.name is None else args.name,
                                log_model_checkpoints=False,
-                               tags=[str(len(dataset))+' samples'] 
+                               tags=[str(len(dataset))+' samples']
                                + (args.tags if args.tags is not None else []))
     else:
         logger = None
+
+    callbacks = []
+    if args.monitor is not None:
+        callbacks.append(ModelCheckpoint(monitor=args.monitor,
+                                         # dirpath=ckpt_dir,
+                                         mode='min',
+                                         filename="{epoch:03d}-{"+args.monitor+":.4f}"))
+
+    if args.patience is not None and args.val_ratio:
+        callbacks.append(EarlyStopping(args.monitor,
+                                       patience=args.patience,
+                                       mode='min'))
 
     trainer = pl.Trainer(max_epochs=args.epochs,
                          logger=logger,
                          gpus=GPUS,
                          profiler='simple',
+                         callbacks=callbacks,
                          check_val_every_n_epoch=1
                          )
     try:
