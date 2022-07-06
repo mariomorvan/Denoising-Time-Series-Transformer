@@ -2,7 +2,7 @@
 
 This is the official repo associated with the above work presented at ICLR 2022 [AI for Earth & Space Science](https://ai4earthscience.github.io/iclr-2022-workshop/accepted) and ICML 2022 [Machine Learning for Astrophysics](https://ml4astro.github.io/icml2022/) workshops.
 
-It contains some utilities to process Light Curve Datasets, as weel as the Denoising Time Series Transformer implemented as a Pytorch lightning module.
+It contains some utilities to process light curve (through Pytorch Dataset and Transform objects), as well as the Denoising Time Series Transformer implemented as a Pytorch lightning module.
 
 We advise to run the code in a dedicated virtual/conda environment after installing the required dependencies:
 
